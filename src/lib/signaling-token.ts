@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 
 const secret = () => {
-  const value = process.env.SIGNALING_SECRET || process.env.RESEND_API_KEY;
+  const value = process.env.SIGNALING_SECRET;
   if (!value) throw new Error("SIGNALING_SECRET is not configured");
   return value;
 };
