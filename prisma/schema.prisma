@@ -1,0 +1,182 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RoomMemberRole {
+  OWNER
+  MODERATOR
+  MEMBER
+}
+
+enum MessageType {
+  TEXT
+  FILE
+  SYSTEM
+}
+
+enum FileStatus {
+  PENDING
+  READY
+  QUARANTINED
+  FAILED
+}
+
+enum AccessRequestStatus {
+  PENDING
+  APPROVED
+  DENIED
+  EXPIRED
+}
+
+model User {
+  id           String       @id @default(cuid())
+  email        String       @unique
+  displayName  String
+  avatarUrl    String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  memberships  RoomMember[]
+  messages     Message[]
+  attachments  FileAttachment[] @relation("UploadedFiles")
+  sessions     AccessSession[]
+  auditEvents  AuditEvent[]
+  executionJobs ExecutionJob[]
+}
+
+model AccessRequest {
+  id            String              @id @default(cuid())
+  email         String
+  displayName   String
+  status        AccessRequestStatus @default(PENDING)
+  requestToken  String              @unique
+  approvalToken String              @unique
+  expiresAt     DateTime
+  approvedAt    DateTime?
+  deniedAt     DateTime?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  @@index([email, createdAt])
+  @@index([status, expiresAt])
+}
+
+model AccessSession {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Room {
+  id          String   @id @default(cuid())
+  name        String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  members     RoomMember[]
+  messages    Message[]
+  attachments FileAttachment[]
+}
+
+model RoomMember {
+  id        String         @id @default(cuid())
+  roomId    String
+  userId    String
+  role      RoomMemberRole @default(MEMBER)
+  joinedAt  DateTime       @default(now())
+  room      Room           @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([roomId])
+  @@index([userId])
+}
+
+model Message {
+  id          String      @id @default(cuid())
+  roomId      String
+  senderId    String
+  type        MessageType @default(TEXT)
+  body        String?
+  createdAt   DateTime    @default(now())
+  room        Room        @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  sender      User       @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  attachment  FileAttachment?
+
+  @@index([roomId, createdAt])
+}
+
+model FileAttachment {
+  id           String     @id @default(cuid())
+  roomId       String
+  uploaderId   String
+  messageId    String?    @unique
+  objectKey    String     @unique
+  originalName String
+  contentType  String
+  sizeBytes    BigInt
+  status       FileStatus @default(PENDING)
+  createdAt    DateTime   @default(now())
+  room         Room       @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  uploader     User       @relation("UploadedFiles", fields: [uploaderId], references: [id], onDelete: Cascade)
+  message      Message?   @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  @@index([roomId, createdAt])
+  @@index([status])
+}
+
+enum RiskTier {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum ExecutionStatus {
+  PLANNED
+  APPROVED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  DENIED
+}
+
+model AuditEvent {
+  id          String   @id @default(cuid())
+  userId      String?
+  requestId   String
+  action      String
+  risk        RiskTier
+  status      ExecutionStatus
+  details     Json
+  createdAt   DateTime @default(now())
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([requestId])
+}
+
+model ExecutionJob {
+  id          String          @id @default(cuid())
+  userId      String
+  action      String
+  risk        RiskTier
+  status      ExecutionStatus @default(PLANNED)
+  payload     Json
+  result      Json?
+  createdAt   DateTime        @default(now())
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
