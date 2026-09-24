@@ -5,7 +5,8 @@ import { WebSocketServer, WebSocket } from "ws";
 const port = Number(process.env.PORT || 4100);
 const secret = process.env.ACTION_RUNNER_SECRET;
 const androidToken = process.env.ANDROID_RUNNER_TOKEN;
-if (!secret) throw new Error("ACTION_RUNNER_SECRET is required");
+function required(value: string | undefined, name: string) { if (!value) throw new Error(`${name} is required`); return value; }
+const runnerSecret = required(secret, "ACTION_RUNNER_SECRET");
 
 const app = express();
 app.use(express.json({ limit: "64kb" }));
@@ -18,7 +19,7 @@ function validSignature(req: express.Request, rawBody: string) {
   if (!ts || !signature) return false;
   const age = Math.abs(Math.floor(Date.now()/1000) - Number(ts));
   if (!Number.isFinite(age) || age > 60) return false;
-  const expected = crypto.createHmac("sha256", secret).update(`${ts}.${rawBody}`).digest("hex");
+  const expected = crypto.createHmac("sha256", runnerSecret).update(`${ts}.${rawBody}`).digest("hex");
   return signature.length === expected.length && crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
 }
 
