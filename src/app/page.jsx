@@ -62,12 +62,31 @@ function Dashboard({user}) {
   const [query,setQuery]=useState("");
   const [confirm,setConfirm]=useState(false);
   const [toast,setToast]=useState("");
+  const [planRows,setPlanRows]=useState([]);
+  const [pending,setPending]=useState(null);
 
   function notify(m){setToast(m);window.setTimeout(()=>setToast(""),2800);}
-  function runPlan(){
+  async function runPlan(){
     if(!query.trim()) return notify("Enter a command first.");
-    setQuery("");
-    notify("Plan generated • governance screening complete.");
+    try {
+      const res=await fetch("/api/agent/plan",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt:query})});
+      const data=await res.json();
+      if(!res.ok) throw new Error(data.error||"Unable to create plan.");
+      setPlanRows(data.steps||[]);
+      setQuery("");
+      notify("Plan generated • governance screening complete.");
+    } catch(err) { notify(err.message||"Unable to create plan."); }
+  }
+  function selectStep(step){ setPending(step); if(step.risk==="HIGH") setConfirm(true); else notify("Ready to dispatch this governed action."); }
+  async function executePending(){
+    if(!pending) return;
+    try {
+      const res=await fetch("/api/agent/execute",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({requestId:pending.requestId||crypto.randomUUID(),action:pending.action,confirmed:pending.risk==="HIGH"})});
+      const data=await res.json();
+      if(!res.ok) throw new Error(data.details||data.error||"Execution failed.");
+      notify("Action acknowledged by trusted runner.");
+      setConfirm(false); setPending(null);
+    } catch(err) { setConfirm(false); notify(err.message||"Trusted execution failed."); }
   }
   async function logout(){
     await fetch("/api/access/logout",{method:"POST"});
@@ -100,17 +119,17 @@ function Dashboard({user}) {
         </div>
 
         <div className="section-title"><div><small>DUAL-AGENT PIPELINE</small><h3>Live execution plan</h3></div><span className="pipeline-status"><i/> HOST AGENT → APP AGENT → GOVERNANCE</span></div>
-        <section className="card table"><div className="table-head"><span>STEP</span><span>ACTION</span><span>RISK</span><span>STATUS</span></div>{plan.map(r=><button key={r[0]} className={r[3]==="HIGH"?"table-row high-row":"table-row"} onClick={()=>r[3]==="HIGH"&&setConfirm(true)}><span className="mono">{r[0]}</span><span><b>{r[1]}</b><small>{r[2]}</small></span><span className={"risk "+r[3].toLowerCase()}>{r[3]}</span><span>{r[4]}</span></button>)}</section>
+        <section className="card table"><div className="table-head"><span>STEP</span><span>ACTION</span><span>RISK</span><span>STATUS</span></div>{planRows.length ? planRows.map((r,i)=><button key={r.id||i} className={r.risk==="HIGH"?"table-row high-row":"table-row"} onClick={()=>selectStep(r)}><span className="mono">{String(i+1).padStart(2,"0")}</span><span><b>{r.action}</b><small>{r.operation}</small></span><span className={"risk "+r.risk.toLowerCase()}>{r.risk}</span><span>{r.requiresApproval?"AWAITING APPROVAL":"READY"}</span></button>) : <div className="audit-row"><span>—</span><span>—</span><span>Enter a command to generate a live governed plan.</span><span>—</span><span>READY</span></div>}</section>
 
         <div className="lower-grid">
-          <section className="card panel"><div className="card-title"><span>RUNTIME NODES</span><b>4 / 4 ONLINE</b></div><div className="nodes">{["Reasoning Brain","Governance Manager","Sandbox Runner","Android Companion"].map(x=><div className="node" key={x}><strong>◈</strong><span><b>{x}</b><small><i/> Healthy</small></span></div>)}</div></section>
-          <section className="card panel"><div className="card-title"><span>SECURITY EVENTS</span><b>LAST 24H</b></div><div className="events"><p><strong>✓</strong><span><b>Origin handshake verified</b><small>WebSocket gateway · 2 min ago</small></span></p><p><strong>!</strong><span><b>High-risk action paused</b><small>Outbound message · 6 min ago</small></span></p><p><strong>✓</strong><span><b>Vault token rotated</b><small>Secret manager · 18 min ago</small></span></p></div></section>
+          <section className="card panel"><div className="card-title"><span>RUNTIME NODES</span><b>CONTROL PLANE</b></div><div className="nodes">{[["Reasoning Brain","Governance API"],["Governance Manager","Policy engine"],["Trusted Runner","External / required"],["Android Companion","External / optional"]].map(([x,s])=><div className="node" key={x}><strong>◈</strong><span><b>{x}</b><small><i/> {s}</small></span></div>)}</div></section>
+          <section className="card panel"><div className="card-title"><span>SECURITY EVENTS</span><b>SERVER AUDIT</b></div><div className="events"><p><strong>✓</strong><span><b>Audit trail is server-backed</b><small>Open Audit Trail for recorded execution events.</small></span></p><p><strong>!</strong><span><b>Trusted runner is fail-closed</b><small>No runner acknowledgement means no success.</small></span></p></div></section>
         </div>
 
         <section className="card audit"><div className="section-title compact"><div><small>IMMUTABLE LOG</small><h3>Recent audit trail</h3></div><button onClick={()=>notify("Audit export prepared.")}>Export log</button></div><div className="audit-head"><span>TIME</span><span>REQUEST</span><span>OPERATION</span><span>RISK</span><span>STATUS</span></div>{[["19:04:12","REQ-9842104","Room query","LOW","CONTINUE"],["18:58:41","REQ-9842098","Draft message","MEDIUM","MONITORED"],["18:52:03","REQ-9842081","External message","HIGH","PENDING_CONFIRMATION"]].map(r=><div className="audit-row" key={r[1]}><span className="mono">{r[0]}</span><span className="mono">{r[1]}</span><span>{r[2]}</span><span className={"risk "+r[3].toLowerCase()}>{r[3]}</span><span>{r[4]}</span></div>)}</section>
       </div> : <Module name={active} onBack={()=>setActive("Command Center")} />}
 
-      {confirm && <div className="modal"><div className="dialog"><div className="warn">!</div><small>HIGH-RISK SAFEGUARD</small><h2>Approve external communication?</h2><p>This action is held behind the governance boundary. Explicit user confirmation is required before the trusted runner can dispatch it.</p><div className="confirm-line"><span>RISK <b>HIGH</b></span><span>STATUS <b>PENDING_CONFIRMATION</b></span></div><div className="dialog-actions"><button onClick={()=>setConfirm(false)}>Cancel</button><button className="danger" onClick={()=>{setConfirm(false);notify("Approved • dispatched to trusted runner.");}}>Approve & dispatch</button></div></div></div>}
+      {confirm && <div className="modal"><div className="dialog"><div className="warn">!</div><small>HIGH-RISK SAFEGUARD</small><h2>Approve external communication?</h2><p>This action is held behind the governance boundary. Explicit user confirmation is required before the trusted runner can dispatch it.</p><div className="confirm-line"><span>RISK <b>HIGH</b></span><span>STATUS <b>PENDING_CONFIRMATION</b></span></div><div className="dialog-actions"><button onClick={()=>setConfirm(false)}>Cancel</button><button className="danger" onClick={executePending}>Approve & dispatch</button></div></div></div>}
       {toast && <div className="toast"><i/>{toast}</div>}
     </section>
   </main>;
