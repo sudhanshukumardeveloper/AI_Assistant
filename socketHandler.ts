@@ -10,7 +10,7 @@ function verifyToken(token: unknown): Claims | null {
   if (typeof token !== "string") return null;
   const [payload, signature] = token.split(".");
   if (!payload || !signature) return null;
-  const secret = process.env.SIGNALING_SECRET || process.env.RESEND_API_KEY;
+  const secret = process.env.SIGNALING_SECRET;
   if (!secret) return null;
   const expected = crypto.createHmac("sha256", secret).update(payload).digest("base64url");
   if (signature.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
