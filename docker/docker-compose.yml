@@ -28,7 +28,7 @@ services:
     environment:
       WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
       REDIS_URL: redis://redis:6379
-      SIGNALING_SECRET: ${SIGNALING_SECRET:-development-secret-change-me}
+      SIGNALING_SECRET: ${SIGNALING_SECRET:?Set SIGNALING_SECRET in docker/.env}
       PORT: 4001
     depends_on:
       redis:
