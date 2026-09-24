@@ -8,11 +8,12 @@ const routers = new Map<string, any>();
 const transports = new Map<string, any>();
 const producers = new Map<string, any>();
 const consumers = new Map<string, any>();
+const transportOwners = new Map<string, { userId: string; roomId: string }>();
 
 function verifyToken(token: unknown): Claims | null {
   if (typeof token !== "string") return null;
   const [payload, signature] = token.split(".");
-  const secret = process.env.SIGNALING_SECRET || process.env.RESEND_API_KEY;
+  const secret = process.env.SIGNALING_SECRET;
   if (!payload || !signature || !secret) return null;
   const expected = crypto.createHmac("sha256", secret).update(payload).digest("base64url");
   if (signature.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
@@ -57,6 +58,7 @@ app.post("/transport", async (req, res) => {
     const router = await routerFor(claims.room);
     const result = await createWebRtcTransport(router);
     transports.set(result.transport.id, result.transport);
+    transportOwners.set(result.transport.id, { userId: claims.sub, roomId: claims.room });
     res.json({ id: result.transport.id, iceParameters: result.iceParameters, iceCandidates: result.iceCandidates, dtlsParameters: result.dtlsParameters });
   } catch (error) { console.error(error); res.status(500).json({ error: "Unable to create transport" }); }
 });
@@ -64,8 +66,10 @@ app.post("/transport", async (req, res) => {
 app.post("/transport/connect", async (req, res) => {
   const claims = auth(req, res); if (!claims) return;
   try {
-    const transport = transports.get(String(req.body.transportId));
-    if (!transport) return res.status(404).json({ error: "Transport not found" });
+    const transportId = String(req.body.transportId);
+    const transport = transports.get(transportId);
+    const owner = transportOwners.get(transportId);
+    if (!transport || !owner || owner.userId !== claims.sub || owner.roomId !== claims.room) return res.status(404).json({ error: "Transport not found" });
     await transport.connect({ dtlsParameters: req.body.dtlsParameters });
     res.json({ ok: true });
   } catch { res.status(400).json({ error: "Unable to connect transport" }); }
@@ -74,8 +78,10 @@ app.post("/transport/connect", async (req, res) => {
 app.post("/produce", async (req, res) => {
   const claims = auth(req, res); if (!claims) return;
   try {
-    const transport = transports.get(String(req.body.transportId));
-    if (!transport) return res.status(404).json({ error: "Transport not found" });
+    const transportId = String(req.body.transportId);
+    const transport = transports.get(transportId);
+    const owner = transportOwners.get(transportId);
+    if (!transport || !owner || owner.userId !== claims.sub || owner.roomId !== claims.room) return res.status(404).json({ error: "Transport not found" });
     const producer = await transport.produce({ kind: req.body.kind, rtpParameters: req.body.rtpParameters });
     producers.set(producer.id, { producer, roomId: claims.room });
     producer.on("transportclose", () => producers.delete(producer.id));
